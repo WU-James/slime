@@ -1,15 +1,15 @@
-ARG SGLANG_VERSION=latest
+ARG SGLANG_VERSION=v0.5.0rc0-cu126
 FROM lmsysorg/sglang:${SGLANG_VERSION} AS sglang
 
 # we need to write this again after from
 ARG SGLANG_VERSION
-ARG MEGATRON_COMMIT=main
+ARG MEGATRON_COMMIT=48406695c4efcf1026a7ed70bb390793918dd97b
 
 RUN apt update
 RUN apt install -y nvtop
 
 # TODO: change to pip install sglang-router after it has a new release
-RUN pip install sglang-router --force-reinstall
+# RUN pip install sglang-router --force-reinstall
 RUN pip install git+https://github.com/fzyzcjy/torch_memory_saver.git --no-cache-dir --force-reinstall
 RUN pip install ray[default]
 RUN pip install httpx[http2] wandb pylatexenc blobfile accelerate "mcp[cli]"
@@ -28,7 +28,7 @@ RUN pip install pybind11
 RUN pip -v install --no-build-isolation git+https://github.com/NVIDIA/TransformerEngine.git@stable
 # flash attn
 # the newest version megatron supports is v2.7.4.post1
-RUN MAX_JOBS=64 pip -v install flash-attn==2.7.4.post1
+RUN MAX_JOBS=16 pip -v install flash-attn==2.7.4.post1
 RUN git clone https://github.com/Dao-AILab/flash-attention.git && cd flash-attention/ && git checkout 27f501d && cd hopper/ && python setup.py install
 RUN python_path=`python -c "import site; print(site.getsitepackages()[0])"` && \
   mkdir -p $python_path/flash_attn_3 && \
@@ -41,7 +41,7 @@ RUN git clone https://github.com/NVIDIA/Megatron-LM.git --recursive && \
     pip install -e .
 
 # sandwitch norm for GLM models
-COPY patch/${SGLANG_VERSION}/megatron.patch /root/Megatron-LM/
+COPY docker/patch/${SGLANG_VERSION}/megatron.patch /root/Megatron-LM/
 RUN cd Megatron-LM && \
     git checkout ${MEGATRON_COMMIT} && \
     git apply megatron.patch --3way && \
@@ -52,7 +52,7 @@ RUN cd Megatron-LM && \
     rm megatron.patch
 
 # sglang patch
-COPY patch/${SGLANG_VERSION}/sglang.patch /sgl-workspace/sglang/
+COPY docker/patch/${SGLANG_VERSION}/sglang.patch /sgl-workspace/sglang/
 RUN cd /sgl-workspace/sglang && \
   git apply sglang.patch && \
   if grep -R -n '^<<<<<<< ' .; then \

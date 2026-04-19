@@ -12,6 +12,12 @@ pkill -9 python
 
 set -ex
 
+# Default ray master address when env var is unset.
+if [[ -z "${MASTER_ADDR:-}" ]]; then
+   MASTER_ADDR="$(hostname -I 2>/dev/null | awk '{print $1}')"
+   MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
+fi
+
 
 huggingface-cli download --repo-type dataset zhuzilin/gsm8k --local-dir gsm8k
 
@@ -37,7 +43,7 @@ ROLLOUT_ARGS=(
    --num-rollout 3000
    --rollout-batch-size 32
    --n-samples-per-prompt 8
-   --rollout-max-response-len 1024
+   --rollout-max-response-len 2048
    --rollout-temperature 0.8
 
    --over-sampling-batch-size 64
@@ -47,10 +53,10 @@ ROLLOUT_ARGS=(
 )
 
 EVAL_ARGS=(
-   --eval-interval 20
+   --eval-interval 5
    --eval-prompt-data gsm8k gsm8k/test.parquet
    --n-samples-per-eval-prompt 1
-   --eval-max-response-len 1024
+   --eval-max-response-len 2048
    --eval-top-k 1
 )
 
@@ -64,7 +70,7 @@ PERF_ARGS=(
 
    # --micro-batch-size 1
    --use-dynamic-batch-size
-   --max-tokens-per-gpu 9216
+   --max-tokens-per-gpu 4096
 )
 
 GRPO_ARGS=(
@@ -109,7 +115,7 @@ MISC_ARGS=(
 )
 
 # launch the master node of ray in container
-ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 4 --disable-usage-stats
+ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 2 --disable-usage-stats
 
 ray job submit --address="http://127.0.0.1:8265" \
    --runtime-env-json='{
@@ -120,7 +126,7 @@ ray job submit --address="http://127.0.0.1:8265" \
    }' \
    -- python3 train.py \
    --actor-num-nodes 1 \
-   --actor-num-gpus-per-node 4 \
+   --actor-num-gpus-per-node 2 \
    --colocate \
    ${MODEL_ARGS[@]} \
    ${CKPT_ARGS[@]} \
