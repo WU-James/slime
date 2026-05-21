@@ -27,7 +27,7 @@ def execute():
         "--num-rollout 3 "
         "--rollout-batch-size 8 "
         "--n-samples-per-prompt 4 "
-        "--rollout-max-response-len 8192 "
+        "--rollout-max-response-len 2048 "
         "--rollout-temperature 0.8 "
         "--global-batch-size 32 "
         "--balance-data "
@@ -41,7 +41,7 @@ def execute():
         "--expert-model-parallel-size 1 "
         "--expert-tensor-parallel-size 1 "
         "--use-dynamic-batch-size "
-        "--max-tokens-per-gpu 9216 "
+        "--max-tokens-per-gpu 2048 "
     )
 
     grpo_args = (
@@ -113,8 +113,6 @@ def execute():
 
 if __name__ == "__main__":
     prepare()
-    os.environ.pop("http_proxy")
-    os.environ.pop("https_proxy")
-    os.environ.pop("HTTP_PROXY")
-    os.environ.pop("HTTPS_PROXY")
+    for proxy_var in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
+        os.environ.pop(proxy_var, None)
     execute()

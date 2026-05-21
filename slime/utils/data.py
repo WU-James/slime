@@ -237,15 +237,16 @@ class Dataset:
             else:
                 output_prompt = prompt
 
-            if processor:
+            if processor and isinstance(prompt, list):
                 from slime.utils.processing_utils import process_vision_info
 
-                assert isinstance(
-                    prompt, list
-                ), f"prompt must be a list when processor is not None, got {type(prompt)} instead"
                 multimodal_inputs = process_vision_info(prompt, processor)
             else:
+                # Text/path-only prompts (e.g. OSWorld example_file paths): rollout builds tokens later.
                 multimodal_inputs = None
+
+            if isinstance(output_prompt, str) and prompt_key in data:
+                metadata = {**metadata, prompt_key: data[prompt_key]}
 
             origin_samples.append(
                 Sample(

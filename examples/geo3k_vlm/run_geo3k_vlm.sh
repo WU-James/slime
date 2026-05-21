@@ -6,9 +6,9 @@
 
 # Configuration
 TRAIN_BACKEND="megatron"
-MODEL_NAME=${SLIME_SCRIPT_MODEL_NAME:-"Qwen3-VL-8B-Instruct"}
+MODEL_NAME=${SLIME_SCRIPT_MODEL_NAME:-"Qwen3-VL-2B-Instruct"}
 DATASET_NAME=${SLIME_SCRIPT_DATASET_NAME:-"chenhegu/geo3k_imgurl"}
-NUM_GPUS=${SLIME_SCRIPT_NUM_GPUS:-8}
+NUM_GPUS=${SLIME_SCRIPT_NUM_GPUS:-4}
 DATASET_LOCAL_NAME=$(basename "$DATASET_NAME")
 
 # Validate MODEL_NAME
@@ -93,12 +93,12 @@ ROLLOUT_ARGS=(
    --apply-chat-template
    --rollout-shuffle
    --rm-type math
-   --num-rollout 3000
-   --rollout-batch-size 64
+   --num-rollout 300
+   --rollout-batch-size 8
    --n-samples-per-prompt 8
-   --rollout-max-response-len 4096
+   --rollout-max-response-len 2048
    --rollout-temperature 0.8
-   --global-batch-size 512
+   --global-batch-size 64
 )
 
 # required for vlm datasets
@@ -108,7 +108,7 @@ EVAL_ARGS=(
    --eval-interval 20
    --eval-prompt-data ${DATASET_LOCAL_NAME} /root/datasets/${DATASET_LOCAL_NAME}/test.parquet
    --n-samples-per-eval-prompt 1
-   --eval-max-response-len 4096
+   --eval-max-response-len 2048
 )
 
 GRPO_ARGS=(
@@ -168,7 +168,7 @@ BACKEND_ARGS=(
    --recompute-method uniform
    --recompute-num-layers 1
    --use-dynamic-batch-size
-   --max-tokens-per-gpu 4096
+   --max-tokens-per-gpu 2048
    --attention-dropout 0.0
    --hidden-dropout 0.0
    --accumulate-allreduce-grads-in-fp32
