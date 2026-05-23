@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build slime prompt jsonl from OSWorld evaluation_examples/examples/*.json."""
+"""Build slime prompt jsonl with absolute example_file paths from OSWorld evaluation_examples/examples/."""
 
 from __future__ import annotations
 
@@ -20,8 +20,7 @@ def collect_example_files(examples_dir: str) -> list[str]:
             continue
         for name in sorted(os.listdir(domain_dir)):
             if name.endswith(".json"):
-                rel = f"examples/{domain}/{name}".replace("\\", "/")
-                paths.append(rel)
+                paths.append(os.path.abspath(os.path.join(domain_dir, name)))
     return paths
 
 
@@ -55,7 +54,8 @@ def main() -> None:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     print(f"Wrote {len(records)} tasks to {output}")
-    print("Use relative example_file paths in --prompt-data (OSWorld file_list format).")
+    print("example_file entries are absolute paths under evaluation_examples/examples/.")
+    print("osworld_rollout converts them to relative paths for OSWorld /rollout file_list.")
 
 
 if __name__ == "__main__":

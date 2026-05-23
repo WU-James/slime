@@ -1,115 +1,82 @@
-# OSWorld + slime VLM GRPO
+# OSWorld Rollout
 
-Train Qwen-VL with slime while rollout runs on the **OSWorld HTTP server** (GUI env + SGLang). Each slime rollout step:
+在 OSWorld GUI 环境上通过 HTTP rollout 采集轨迹，再用 slime + Megatron 做 Qwen-VL 的 GRPO 训练。入口脚本：`examples/osworld/run_osworld_vlm.sh`。
 
-1. Read task paths from `--prompt-data` jsonl  
-2. `POST /rollout` with `file_list` (relative `examples/<domain>/<id>.json`)  
-3. OSWorld runs env + SGLang, writes `traj/<rollout_idx>/*.json`  
-4. `traj_to_sample()` → `Sample` (tokens, loss_mask, reward, `multimodal_train_inputs`)  
-5. Megatron GRPO training  
+---
 
-## Path convention (important)
+## 1. 准备 Dataset
 
-| Where | Path format |
-|-------|-------------|
-| **slime dataset** (`example_file`) | Prefer **relative**: `examples/libreoffice_calc/<uuid>.json` |
-| **OSWorld `file_list`** | Same relative paths (required by server) |
-| **OSWorld resolves** | `join(test_config_base_dir, path)` → `evaluation_examples/examples/...` |
+将OSWorld仓库中Dataset准备为Slime训练需要版本。最终Dataset中每条数据为一个Task Setup的路径。
 
-Absolute paths in the dataset are OK: `osworld_rollout` strips the `evaluation_examples` prefix and sends relative paths to `/rollout`.
+### 生成 `osworld_tasks.jsonl`
 
-Do **not** put only a basename in the dataset; OSWorld expects `examples/<domain>/<id>.json`.
-
-## Files
-
-| File | Role |
-|------|------|
-| `build_task_dataset.py` | Scan `evaluation_examples/examples/**/*.json` → jsonl |
-| `traj_to_sample.py` | traj JSON → `Sample` |
-| `smoke_test_traj_to_sample.py` | Validate traj / adapter |
-| `run_osworld_vlm.sh` | Launch slime training (like `geo3k_vlm`) |
-| `slime/rollout/osworld_rollout.py` | Custom `--rollout-function-path` |
-
-## Setup
-
-### Docker (`--network=host`) + OSWorld on host
-
-With `--network=host`, container and host share `127.0.0.1` — no `host.docker.internal` needed.
-
-**Recommended `docker run` extra mounts** (in addition to slime repo):
 
 ```bash
--v /home/yongjinwu/work/git/OSWorld:/root/OSWorld \
--v /mnt/nfs/yongjinwu/models/Qwen3-VL-2B-Instruct:/root/models/Qwen3-VL-2B-Instruct \
+export OSWORLD_ROOT=<OSWORLD_REPO>
+python3 <SLIME_REPO>/examples/osworld/build_task_dataset.py \
+  --osworld-root "${OSWORLD_ROOT}"
+# 输出: ${OSWORLD_ROOT}/datasets/osworld_tasks.jsonl
 ```
+---
 
-**Ports**
+## 2. 启动方式（Docker + 训练）
 
-| Service | URL | Who starts it |
-|---------|-----|----------------|
-| SGLang OpenAI API | `http://127.0.0.1:30000/v1` | slime `train.py` (`--sglang-router-port 30000`) |
-| OSWorld `/rollout` | `http://127.0.0.1:18081/rollout` | host conda (`run_qwen3vl_rollout_server.sh`) |
+### 2.1 启动 Docker
 
-**Start order**
 
-1. **Container**: `docker run ...` → `cd /root/slime/examples/osworld` → `./run_osworld_vlm.sh`  
-   Wait until logs show `Router launched at 127.0.0.1:30000`.
-2. **Host**: `cd $OSWORLD_ROOT && bash scripts/bash/run_qwen3vl_rollout_server.sh`  
-   Keep `export OPENAI_BASE_URL="http://127.0.0.1:30000/v1"` (or `localhost`).
+将下面三条 `-v` 换成你机器上的实际路径：
 
-**Env inside container** (also passed via `run_osworld_vlm.sh` ray runtime):
+| 占位符 | 挂载到容器内 | 说明 |
+|--------|----------------|------|
+| `<SLIME_REPO>` | `/root/slime` | 本仓库（含 `run_osworld_vlm.sh`） |
+| `<MODEL_DIR>` | `/root/models/Qwen3-VL-2B-Instruct` | 已下载的 Qwen3-VL-2B-Instruct 权重目录（与 `SLIME_SCRIPT_MODEL_NAME` 一致） |
+| `<OSWORLD_REPO>` | `/root/OSWorld` | 定制版 [OSWorld 仓库](https://github.com/WU-James/OSWorld) 根目录（含 `evaluation_examples`、`datasets/`） |
 
 ```bash
-export OSWORLD_ROOT=/root/OSWorld
-export OSWORLD_ROLLOUT_URL=http://127.0.0.1:18081/rollout
-export SLIME_SCRIPT_MODEL_NAME=Qwen3-VL-2B-Instruct
+docker run --rm --name yongjinwu_slime_dev \
+  --gpus all \
+  --ipc=host \
+  --network=host \
+  --shm-size=16g \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  --add-host=host.docker.internal:host-gateway \
+  -v <SLIME_REPO>:/root/slime \
+  -v <MODEL_DIR>:/root/models/Qwen3-VL-2B-Instruct \
+  -v <OSWORLD_REPO>:/root/OSWorld \
+  -w /root/slime \
+  -it slimerl/slime:latest /bin/bash
 ```
 
-Do **not** start OSWorld before slime’s first `pkill sglang` in `run_osworld_vlm.sh` unless you accept SGLang being killed; normal flow is slime first, then OSWorld server.
+### 2.2 容器内修复环境
 
-### All on host (no Docker)
-
-**Terminal A – slime** (`run_osworld_vlm.sh` → Ray + SGLang :30000 + train)
-
-**Terminal B – OSWorld server** (after SGLang is up):
+进入容器后可能需要安装 `torch_memory_saver`（当前镜像未自带，训练 colocate 时需要）：
 
 ```bash
-cd /home/yongjinwu/work/git/OSWorld
-export OPENAI_BASE_URL="http://127.0.0.1:30000/v1"
-bash scripts/bash/run_qwen3vl_rollout_server.sh
+pip install git+https://github.com/fzyzcjy/torch_memory_saver.git@d64a639 \
+  --no-cache-dir --force-reinstall
 ```
 
-Build dataset only:
+### 2.3 启动 OSWorld Rollout Server
+
+https://github.com/WU-James/OSWorld
+
+### 2.4 容器内启动训练
+
+按实际 GPU 编号设置 `CUDA_VISIBLE_DEVICES`（逻辑 GPU 数量需与 `SLIME_SCRIPT_NUM_GPUS` 一致，默认 4）：
 
 ```bash
-python build_task_dataset.py --osworld-root "$OSWORLD_ROOT"
-# -> $OSWORLD_ROOT/datasets/osworld_tasks.jsonl
+CUDA_VISIBLE_DEVICES=0,1,4,7 \
+OSWORLD_ROOT=/root/OSWorld \
+bash /root/slime/examples/osworld/run_osworld_vlm.sh
 ```
 
-Smoke test existing traj:
+可选环境变量：
 
-```bash
-export HF_CHECKPOINT=/mnt/nfs/yongjinwu/models/Qwen3-VL-2B-Instruct
-python smoke_test_traj_to_sample.py --osworld-root "$OSWORLD_ROOT" \
-  "$OSWORLD_ROOT/traj/0/"*.json
-```
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `SLIME_SCRIPT_MODEL_NAME` | `Qwen3-VL-2B-Instruct` | 模型名（须在脚本白名单内） |
+| `SLIME_SCRIPT_NUM_GPUS` | `4` | Ray / 训练 / colocate 使用的 GPU 数 |
+| `OSWORLD_ROLLOUT_URL` | `http://127.0.0.1:18081/rollout` | OSWorld HTTP 端点 |
 
-## Environment variables (slime OSWorld rollout)
 
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `OSWORLD_ROOT` | (required) | OSWorld repo root (`traj/`, `traj_images/`) |
-| `OSWORLD_ROLLOUT_URL` | `http://127.0.0.1:18081/rollout` | HTTP endpoint |
-| `OSWORLD_TEST_CONFIG_BASE_DIR` | `$OSWORLD_ROOT/evaluation_examples` | Prefix for `file_list` paths |
-| `OSWORLD_ROLLOUT_TIMEOUT` | `7200` | HTTP timeout (seconds) |
-| `OSWORLD_ROLLOUT_MAX_RETRIES` | `3` | Retries on 409 / connection errors |
-
-Slime CLI: `--rollout-function-path slime.rollout.osworld_rollout.generate_rollout`, `--prompt-data`, `--input-key example_file`.  
-`--rollout-batch-size` should be ≤ OSWorld `--num_envs` (server handles one request at a time).  
-Set `--global-batch-size` to `rollout_batch_size * n_samples_per_prompt // num_steps_per_rollout` (default: 4×1÷4=1). Use `--num-steps-per-rollout 4` so Megatron runs `compute_log_prob` before GRPO advantages (OSWorld traj has no SGLang `rollout_log_probs`). OSWorld trajs are long (~5k tokens with vision); use `--max-tokens-per-gpu 2048` (not 8192) and `--global-batch-size 1` on 24GB colocate to avoid train OOM. Lower `--sglang-mem-fraction-static` (e.g. 0.45) to leave headroom after rollout wake-up.
-
-Reward comes from traj (`reward` field); no `--rm-type` needed for rollout.
-
-## `multimodal_train_inputs`
-
-Traj already has expanded vision `tokens`. To rebuild `pixel_values`, the adapter **collapses** vision spans in token space, runs processor once, and checks `len(input_ids) == len(traj["tokens"])`. See comments in `traj_to_sample.py`.

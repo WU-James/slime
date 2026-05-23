@@ -66,7 +66,7 @@ export PYTHONBUFFERED=16
 
 SLIME_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." &>/dev/null && pwd)"
 
-# Build task list jsonl (relative paths: examples/<domain>/<id>.json)
+# Build task list jsonl (absolute paths under evaluation_examples/examples/)
 if [ ! -f "${OSWORLD_TASKS_JSONL}" ]; then
    python3 "${SLIME_DIR}/examples/osworld/build_task_dataset.py" \
       --osworld-root "${OSWORLD_ROOT}"
@@ -89,21 +89,21 @@ CKPT_ARGS=(
    --rotary-base 5000000
 )
 
-# Dataset: each line {"example_file": "examples/libreoffice_calc/<uuid>.json"}
-# Use RELATIVE paths — OSWorld joins them with evaluation_examples (test_config_base_dir).
+# Dataset: each line {"example_file": "/.../evaluation_examples/examples/<domain>/<uuid>.json"}
+# osworld_rollout strips to relative paths for OSWorld /rollout file_list.
 ROLLOUT_ARGS=(
    --rollout-function-path slime.rollout.osworld_rollout.generate_rollout
    --prompt-data "${OSWORLD_TASKS_JSONL}"
    --input-key example_file
    --rollout-shuffle
    --num-rollout 300
-   --rollout-batch-size 4
+   --rollout-batch-size 2
    --n-samples-per-prompt 1
    --rollout-max-response-len 2048
    --rollout-max-prompt-len 2048
    # One sample per Megatron step: OSWorld trajs are ~5k+ tokens (vision); packing 2+ per step OOMs on 24GB.
    # num_steps=4 still runs compute_log_prob before advantages (no SGLang rollout_log_probs / can_reuse).
-   --num-steps-per-rollout 4
+   --num-steps-per-rollout 2
    --global-batch-size 1
 )
 
